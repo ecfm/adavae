@@ -825,6 +825,8 @@ def train(args):
                                                                              adavae_params_with_gradients/(adavae_params - adavae_params_with_gradients)))
                     tuning_all = True
 
+                if args.warmup != -1:
+                    scheduler.step()
                 if args.fb == 1:
                     kl_rate = args.kl_rate * args.latent_size
                 elif args.fb == 4:
@@ -833,8 +835,7 @@ def train(args):
                     kl_rate = args.kl_rate
                 loss, ce_loss, regul_loss = train_step(device, AdaVAE, optimizer, x_ids, input_ids, attention_mask,
                                                        loss_fn, beta, kl_rate, args.reg_loss, False, args.fb)
-                if args.warmup != -1:
-                    scheduler.step()
+                
                 if args.reg_loss == "adversarial":
                     d_loss, g_loss, kld = regul_loss[0].item(), regul_loss[1].item(), regul_loss[2].item()
                 else:
