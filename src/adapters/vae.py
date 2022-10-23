@@ -13,7 +13,7 @@ import torch
 import torch.nn as nn
 import math, sys
 import torch.nn.functional as F
-from transformers.modeling_gpt2 import ACT2FN, Attention, GPT2Model, Block, MLP, GPT2LMHeadModel
+from transformers.models.gpt2.modeling_gpt2 import ACT2FN, GPT2Attention, GPT2Model, GPT2Block, GPT2MLP, GPT2LMHeadModel
 from transformers.modeling_utils import PreTrainedModel, Conv1D, prune_conv1d_layer, SequenceSummary
 sys.path.append('../')
 from .common import AdapterConfig, init_lisa_params, init_bert_weights, init_bias_mlp, init_zero_weights, \
@@ -107,9 +107,9 @@ class LatentSelfAttention(nn.Module):
 
 
 ## PSA for additive z infusion
-class Cond_Attention(Attention):
+class Cond_Attention(GPT2Attention):
     def __init__(self, nx, n_ctx, config, AdapterConfig, scale=False):
-        super(Attention, self).__init__()
+        super(GPT2Attention, self).__init__()
         # self.output_attentions = config.output_attentions
         self.output_attentions = False
 
@@ -195,12 +195,12 @@ class Cond_Attention(Attention):
         outputs = [a, present] + attn_outputs[1:]
         return outputs  # a, present, (attentions)
 
-class MAM_Attention(Attention):
+class MAM_Attention(GPT2Attention):
     """
     parallel adapter with prefix-tuning and LoRA component
     """
     def __init__(self, nx, n_ctx, config, AdapterConfig, add_attn=True, add_mem=False, bias_bool=True, scale=False):
-        super(Attention, self).__init__()
+        super(GPT2Attention, self).__init__()
         # self.output_attentions = config.output_attentions
         self.output_attentions = False
 
@@ -475,9 +475,9 @@ class Latent_GPT2Adapter(nn.Module):
             out = up_projected
         return out
 
-################################# Attention Blocks #########################################
+################################# GPT2Attention Blocks #########################################
 ####################### auxiliary attention blocks w/o Adapter BEGIN #######################
-class Unmasked_Attention(Attention):
+class Unmasked_Attention(GPT2Attention):
     """
     unmasked attention layer for encoder, re-define _atten function
     """
@@ -502,12 +502,12 @@ class Unmasked_Attention(Attention):
             outputs.append(w)
         return outputs
 
-class MAM_Unmasked_Attention(Attention):
+class MAM_Unmasked_Attention(GPT2Attention):
     """
     parallel adapter with prefix-tuning and LoRA component
     """
     def __init__(self, nx, n_ctx, config, AdapterConfig, scale=False):
-        super(Attention, self).__init__()
+        super(GPT2Attention, self).__init__()
         # self.output_attentions = config.output_attentions
         self.output_attentions = False
 
@@ -628,29 +628,29 @@ class MAM_Unmasked_Attention(Attention):
         outputs = [a, present] + attn_outputs[1:]
         return outputs  # a, present, (attentions)
 
-class Unmasked_Block(Block):
+class Unmasked_Block(GPT2Block):
     """
     base block of Encoder, unmasked/bi-directional structure in the encoder
     to allow full information scope.
     Optimus uses BERT (bi-directional) to achieve this goal
     """
     def __init__(self, n_ctx, config, AdapterConfig, scale=False):
-        super(Block, self).__init__()
+        super(GPT2Block, self).__init__()
         nx = config.n_embd
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = Unmasked_Attention(nx, n_ctx, config, scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        self.mlp = GPT2MLP(4 * nx, config)
 
 ## Additive attention block for method 2 in the paper
-class Masked_Block(Block):
+class Masked_Block(GPT2Block):
     def __init__(self, n_ctx, config, AdapterConfig, add_attn=True, add_mem=False, scale=False):
-        super(Block, self).__init__()
+        super(GPT2Block, self).__init__()
         nx = config.n_embd
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         self.attn = MAM_Attention(nx, n_ctx, config, AdapterConfig, add_attn, add_mem, scale=scale)
         self.ln_2 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        self.mlp = GPT2MLP(4 * nx, config)
 
     def forward(self, x, z, layer_past=None, attention_mask=None, head_mask=None):
         output_attn = self.attn(
@@ -667,14 +667,14 @@ class Masked_Block(Block):
 ####################### auxiliary attention blocks w/o Adapter END #######################
 
 ####################### auxiliary attention blocks w/ Adapter BEGIN ######################
-class Unmasked_AdapterBlock(Block):
+class Unmasked_AdapterBlock(GPT2Block):
     """
     base block of Encoder, unmasked/bi-directional structure in the encoder
     to allow full information scope.
     Optimus uses BERT (bi-directional) to achieve this goal
     """
     def __init__(self, n_ctx, config, AdapterConfig, scale=False):
-        super(Block, self).__init__()
+        super(GPT2Block, self).__init__()
         nx = config.n_embd
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         # self.attn = Unmasked_Attention(nx, n_ctx, config, scale)
@@ -683,9 +683,9 @@ class Unmasked_AdapterBlock(Block):
         if AdapterConfig.ffn_option == "pfeiffer":
             self.ln_3 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         if config.add_cross_attention:
-            self.crossattention = Attention(nx, n_ctx, config, scale, is_cross_attention=True)
+            self.crossattention = GPT2Attention(nx, n_ctx, config, scale, is_cross_attention=True)
             self.ln_cross_attn = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        self.mlp = GPT2MLP(4 * nx, config)
         self.Adaconfig = AdapterConfig
         self.adapter = GPT2Adapter(self.Adaconfig)
         if self.Adaconfig.ffn_option == "houlsby":
@@ -748,13 +748,13 @@ class Unmasked_AdapterBlock(Block):
         return outputs  # x, present, (attentions)
 
 ## Additive attention block for method 2 in the paper
-class AdapterBlock(Block):
+class AdapterBlock(GPT2Block):
     """
     to infuse latent variable z to attention layers
     adapter-tuning essentially add down/up projection to the output
     """
     def __init__(self, n_ctx, config, AdapterConfig, add_attn=True, add_mem=False, scale=False):
-        super(Block, self).__init__()
+        super(GPT2Block, self).__init__()
         nx = config.n_embd
         self.add_z2adapters = AdapterConfig.add_z2adapters
         self.ln_1 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
@@ -764,9 +764,9 @@ class AdapterBlock(Block):
         if AdapterConfig.ffn_option == "pfeiffer":
             self.ln_3 = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
         if config.add_cross_attention:
-            self.crossattention = Attention(nx, n_ctx, config, scale, is_cross_attention=True)
+            self.crossattention = GPT2Attention(nx, n_ctx, config, scale, is_cross_attention=True)
             self.ln_cross_attn = nn.LayerNorm(nx, eps=config.layer_norm_epsilon)
-        self.mlp = MLP(4 * nx, config)
+        self.mlp = GPT2MLP(4 * nx, config)
         if self.add_z2adapters:
             self.z_proj = nn.Linear(AdapterConfig.hidden_size, AdapterConfig.hidden_size)
         self.Adaconfig = AdapterConfig
@@ -1102,7 +1102,7 @@ class Decoder(GPT2Model):
             # self.h = nn.ModuleList([Cond_Block(config.n_ctx, config, scale=True) for _ in range(config.n_layer)])
         else:
             n = AdapterConfig.decoder_n_layer
-            self.h = nn.ModuleList([Block(config.n_ctx, config, scale=True) for _ in range(n)])
+            self.h = nn.ModuleList([GPT2Block(config.n_ctx, config, scale=True) for _ in range(n)])
         self.ln_f = nn.LayerNorm(config.n_embd, eps=config.layer_norm_epsilon)
 
         self.init_weights()

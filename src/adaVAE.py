@@ -20,9 +20,9 @@ from data import ConditionalGenerationDataset, GenerationDataset, GLUEPretrainin
 import datetime
 
 from torch.utils.data import Dataset, DataLoader
-from apex.optimizers import FusedAdam
-from apex import amp
-from apex.fp16_utils import FP16_Optimizer
+# from apex.optimizers import FusedAdam
+# from apex import amp
+# from apex.fp16_utils import FP16_Optimizer
 from transformers.modeling_utils import PreTrainedModel, Conv1D, prune_conv1d_layer, SequenceSummary
 from transformers import GPT2Tokenizer, GPT2LMHeadModel, GPT2Config, AdamW, get_linear_schedule_with_warmup, Conv1D
 
@@ -46,13 +46,13 @@ parser.add_argument('--pre_enc_iter', type=str, default=None,
                          " None for no pre-training")
 
 ## mode options
-parser.add_argument('--adapter_size', type=int, default=256,
+parser.add_argument('--adapter_size', type=int, default=128,
                     help="Hidden size of GPT2 encoder/decoder adapter")
 parser.add_argument('--prefix_size', type=int, default=30,
                     help="Hidden size of GPT2 encoder/decoder prefix")
 parser.add_argument('--latent_size', type=int, default=768,
                     help="Hidden size of latent code")
-parser.add_argument('--encoder_n_layer', type=int, default=6,
+parser.add_argument('--encoder_n_layer', type=int, default=8,
                     help="attention layer number of GPT-2 encoder")
 parser.add_argument('--decoder_n_layer', type=int, default=12,
                     help="attention layer number of GPT-2 decoder")
@@ -77,11 +77,11 @@ parser.add_argument('--reg_loss', type=str, default="kld",
                     help="regularization loss for latent space")
 
 ## training paramters
-parser.add_argument('--batch-sizes', nargs='+', type=int, default=[1],
+parser.add_argument('--batch-sizes', nargs='+', type=int, default=[90],
                     help='batch size per GPU. Lists the schedule.')
 parser.add_argument('--seq-lens', nargs='+', type=int, default=[30],
                     help='seq length per sample. Lists the schedule.')
-parser.add_argument('--max_length', type=int, default=25,
+parser.add_argument('--max_length', type=int, default=32,
                     help='max length of every input sentence')
 parser.add_argument('--switch-time', type=float, default=0,
                     help="Percentage of iterations to spend on short sequence training.")
@@ -112,7 +112,7 @@ parser.add_argument('--fp16_opt_level', default='O1', type=str, required=False)
 # KL cost annealing, increase beta from beta_0 to 1 in beta_warmup steps
 parser.add_argument('--beta_0', default=1.00, type=float)
 parser.add_argument('--beta_warmup', type=int, default=1000)
-parser.add_argument('--kl_rate', type=float, default=0.0)
+parser.add_argument('--kl_rate', type=float, default=0.5)
 parser.add_argument('--fb', type=int, default=1, choices=[1, 2, 3, 4])
 
 # cyc_vae parameters
@@ -124,9 +124,9 @@ parser.add_argument('--load', action="store_true")
 # parser.add_argument('--label_cond', action="store_true")
 parser.add_argument('--save_all', action="store_true",
                     help="save full parameters of the model, may up to 500M+")
-parser.add_argument('--weighted_sample', action="store_true", default=False)
+parser.add_argument('--weighted_sample', action="store_false")
 parser.add_argument('--add_input', action="store_true")
-parser.add_argument('--add_attn', action="store_true")
+parser.add_argument('--add_attn', action="store_false")
 parser.add_argument('--add_softmax', action="store_true")
 parser.add_argument('--add_mem', action="store_true")
 parser.add_argument('--attn_proj_vary', action="store_true")
@@ -228,11 +228,11 @@ def train_step(device, model, optimizer, x_tokens, input_tokens, att_mask, loss_
     optimizer.zero_grad()
     loss, ce_loss, reg_loss, _, _ = compute_loss(device, model, x_tokens, input_tokens, att_mask, loss_fn,
                                           beta, kl_rate, reg_loss_type, weighted_sample=False, from_mean=from_mean, fb=fb)
-    with amp.scale_loss(loss, optimizer) as scaled_loss:
-        scaled_loss.backward()
-        torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), 1.0)  # max_grad_norm=1.0
-    # loss.backward()
-    # torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # max_grad_norm=1.0
+    # with amp.scale_loss(loss, optimizer) as scaled_loss:
+        # scaled_loss.backward()
+        # torch.nn.utils.clip_grad_norm_(amp.master_params(optimizer), 1.0)  # max_grad_norm=1.0
+    loss.backward()
+    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0) # max_grad_norm=1.0
     optimizer.step()
     # output.append((loss.item(), ce_loss.mean().item(), reg_loss.item()))
     if reg_loss_type == "adversarial":
@@ -491,7 +491,7 @@ def train(args):
 
     optimizer = AdamW(AdaVAE.parameters(), lr=args.lr, correct_bias=True)
     scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, lr_schedule)
-    AdaVAE, optimizer = amp.initialize(AdaVAE, optimizer, opt_level=args.fp16_opt_level)
+    # AdaVAE, optimizer = amp.initialize(AdaVAE, optimizer, opt_level=args.fp16_opt_level)
 
     ## load ckpt
     if args.load:
