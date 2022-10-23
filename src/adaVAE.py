@@ -549,7 +549,7 @@ def train(args):
         logging.info("Validation loop.         Batches: %d" % len(val_loader))
         logging.info("Validation loop. max_val_batches: %d" % max_val_batches)
 
-        with tqdm(total=min(len(val_loader), max_val_batches), desc="Evaluating Model") as pbar:
+        with tqdm(total=min(len(val_loader), max_val_batches), desc="Evaluating Model", position=0, leave=True) as pbar:
             for i, val_data_dict in enumerate(val_loader):
                 with torch.no_grad():
                     val_x_ids, val_input_ids, val_attention_mask = tokenize(val_data_dict['x'], tokenizer, device, args)
@@ -655,7 +655,7 @@ def train(args):
         """
         n_examples = 0
         log_qz = 0.
-        for i in tqdm(range(len(mu_batch_list)), desc="Evaluating MI, Stage 2"):
+        for i in tqdm(range(len(mu_batch_list)), desc="Evaluating MI, Stage 2", position=0, leave=True):
             ###############
             # get z_samples
             ###############
@@ -701,7 +701,7 @@ def train(args):
         calculate au Stage 2
         """
         cnt_au = 0
-        with tqdm(total=min(len(val_loader), max_val_batches), desc="Evaluating AU, Stage 2") as pbar:
+        with tqdm(total=min(len(val_loader), max_val_batches), desc="Evaluating AU, Stage 2", position=0, leave=True) as pbar:
             for i, val_data_dict in enumerate(val_loader):
                 with torch.no_grad():
                     val_x_ids, val_input_ids, val_attention_mask = tokenize(val_data_dict['x'], tokenizer, device, args)
@@ -825,8 +825,6 @@ def train(args):
                                                                              adavae_params_with_gradients/(adavae_params - adavae_params_with_gradients)))
                     tuning_all = True
 
-                if args.warmup != -1:
-                    scheduler.step()
                 if args.fb == 1:
                     kl_rate = args.kl_rate * args.latent_size
                 elif args.fb == 4:
@@ -835,6 +833,8 @@ def train(args):
                     kl_rate = args.kl_rate
                 loss, ce_loss, regul_loss = train_step(device, AdaVAE, optimizer, x_ids, input_ids, attention_mask,
                                                        loss_fn, beta, kl_rate, args.reg_loss, False, args.fb)
+                if args.warmup != -1:
+                    scheduler.step()
                 if args.reg_loss == "adversarial":
                     d_loss, g_loss, kld = regul_loss[0].item(), regul_loss[1].item(), regul_loss[2].item()
                 else:
